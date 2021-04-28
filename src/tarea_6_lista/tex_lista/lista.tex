@@ -1,0 +1,163 @@
+%! Author = Daryl Butron
+%! Date = 27/04/2021
+
+% Preamble
+\documentclass[11pt]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[table]{xcolor}
+\usepackage[spanish]{babel}
+%\usepackage{hyperref}
+
+\usepackage{amsmath}
+\usepackage{tabularx}
+\usepackage{natbib}
+\usepackage{listings}
+\usepackage{graphicx}
+%\usepackage[T1]{fontenc}
+
+\title{Lista Enlazada Paralelo con Pthreads}
+\author{daryl.butron@ucsp.edu.pe}
+\date{}
+
+% Defines
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+\definecolor{applegreen}{rgb}{0.55, 0.71, 0.0}
+\definecolor{ao(english)}{rgb}{0.0, 0.5, 0.0}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{ao(english)},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2
+}
+
+% Document
+\begin{document}
+
+    \maketitle
+
+    \section{Link al repositorio}
+    https://github.com/dabc312GitHub/tarea678.git
+
+    \section{Funciones}
+    Se tienen principalmente 3 funciones las cuales crearan problemas en
+    tratar una estructura que almacene elementos:
+    \begin{enumerate}
+        \item Member: Esta se encargará solo de recorrer la lista hasta encontrar el
+              elemento o sea nulo.
+        \item Insert: Esta se encargará de crear nodos y agregar el valor correspondiente
+              en el determinado nodo de forma que sea una lista ordenada.
+        \item Delete: Esta se encargará de eliminar nodos con su respectivo valor.
+    \end{enumerate}
+
+    \section{Contexto Paralelo}
+    Para trabajar con paralelismo con pthreads se requiere saber como solucionar el tema
+    de colisiones entre threads al realizar el uso de un recurso compartido en simultáneo.
+    Para esto se tendra que gestionar adecuadamente un recurso compartido como el puntero
+    de tipo nodo head_p como variable global, por lo cual se presentarán los siguientes casos
+    por solución presentada:
+
+    \subsection[]{Solución 1: }
+    Se podría colocar un bloqueo por mutex antes de la operación y colocar el desbloqueo
+    despues de la operación. Tratandose así, la lista se bloquea y desbloquea por operación.
+    \begin{lstlisting}[
+        language = C++,
+        caption = Solución 1
+    ]
+    Pthread_mutex_lock(&list mutex);
+    Member(value);
+    Pthread_mutex_unlock(&list mutex);
+    \end{lstlisting}
+    Problema: Esta solución covierte a las operaciones de forma secuencial
+
+    \subsection{Solución 2:}
+    Se podrían bloquear nodos en lugar de toda la lista, para que así se puede tener
+    mayor libertad de manejo de las operaciones en simultáneo. Para que esta solución
+    funcione se procede a crear un mutex por nodo, es decir que en la misma estructura
+    del nodo se tiene el mutex.
+    \begin{lstlisting}[
+        language = C++,
+        caption = Solución 2 en la operación Member
+    ]
+
+    struct list_node_s {
+      int data;
+      struct list_node_s* next;
+      pthread_mutex_t mutex;
+    };
+
+    struct list_node_s** head_p;
+    struct pthread_mutex_t ** head_p_mutex;
+
+    void MemberThreads(int value) {
+      struct list_node_s* temp_p;
+      pthread_mutex_lock((pthread_mutex_t *) &head_p_mutex);
+      temp_p = (struct list_node_s *) head_p;
+      while (temp_p != NULL && temp_p->data < value) {
+        if (temp_p->next != NULL)
+          pthread_mutex_lock(&temp_p->next->mutex);
+        if (temp_p == *head_p)
+          pthread_mutex_unlock((pthread_mutex_t *) &head_p_mutex);
+        pthread_mutex_unlock(&temp_p->mutex);
+        temp_p = temp_p->next;
+      }
+    }
+    /* MemberPthreads */
+    \end{lstlisting}
+    Problema: Al agregar el campo mutex a cada nodo, esto llevara un mayor almacenamiento
+    en memoria que podría ser considerable a la perfomance de la estructura.
+
+    \subsection{Solución 3: Bloqueo de lectura y escritura}
+    Para el caso de Member se realiza lectura, pero para Insert y Delete se realiza
+    bloqueo por escritura. Para esto se crea bloqueos mas que todo en escritura y en la
+    lectura se dejan pasar los threads ya que no hace modificaciones críticas a la
+    estructura.
+
+    \begin{lstlisting}[
+        language = C++,
+        caption = Solución 3 bloqueo Read-Write
+    ]
+    pthread_rwlock_rdlock(&rwlock);
+    Member(value);
+    pthread_rwlock_unlock(&rwlock);
+    . . .
+    pthread_rwlock_wrlock(&rwlock);
+    Insert(value);
+    pthread_rwlock_unlock(&rwlock);
+    . . .
+    pthread_rwlock_wrlock(&rwlock);
+    Delete(value);
+    pthread_rwlock_unlock(&rwlock);
+    \end{lstlisting}
+
+    \section{Tiempos}
+    Para 8 threads:
+    \begin{enumerate}
+        \item Read-Write: -4.357145e-312 seconds
+        \item Mute por lista: 1.484375e+00 seconds
+        \item Mutex por nodo:
+    \end{enumerate}
+
+    \section{Hardware utilizado}
+    \begin{enumerate}
+        \item Intel Core i7
+        \item 16 GB RAM
+    \end{enumerate}
+\end{document}
